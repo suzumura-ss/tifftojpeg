@@ -1,0 +1,35 @@
+Tiff to JPEG
+  Copyright 2009, Toshiyuki Suzumura. under GPL license.
+
+Description:
+  "tiffhtojpeg" is console utility, it render JPEG from TIFF.
+
+  You can specify:
+  * Quality of JPEG compression.
+  * Write JPEG stream to "file" or "stdout".
+    "stdout" is useful to use with image prosessor, e.g. "ImageMagick".
+
+How to build:
+  This program is depend on following library and packages:
+  * libtiff-devel
+  * libjpeg-devel
+
+  First, you must install these library and packages.
+  And
+    $ make
+    $ make install
+  It install into "/usr/local/bin" by default.
+
+
+How to use:
+  See "tifftojpeg -h" for command-line options.
+
+  Sample:
+  $ tifftojpeg foo.tiff bar-%d.jpg
+  => Render "bar-1.jpg", "bar-2.jpg", ... from "foo.tiff", JPEG quality is 100(BEST).
+
+  $ flashtojpeg foo.tiff -q 50 bar-%d.jpg
+  => Render "bar-1.jpg", "bar-2.jpg", ... from "foo.tiff", JPEG quality is 50.
+
+  $ flashtojpeg foo.tiff -- | convert - -resize "200x200>" thumb-%d.jpg
+  => Write JPEG stream to stdout, and resize with ImageMagick.
