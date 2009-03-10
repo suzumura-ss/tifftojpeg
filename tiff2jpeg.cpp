@@ -162,6 +162,7 @@ int main(int argc, const char*argv[])
       // Resize
       Magick::Image image(width, height, "RGBA", Magick::CharPixel, img);
       if(cfg.resize) image.resize(cfg.resize);
+      image.quality(cfg.quality);
 
       // Write to file by JPEG.
       snprintf(strbuf, sizeof(strbuf), cfg.output_filename, count);
