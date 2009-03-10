@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include <Magick++.h>
+
 #include "tiff2bitmap.h"
 #include "jpegenc.h"
 #include "logger.h"
@@ -15,19 +17,17 @@
 class Config
 {
 public:
-  long  width;
-  long  height;
   long  quality;
   const char* source_filename;
   const char* output_filename;
+  const char* resize;
   Logger::LEVEL msg_level;
 
   Config() {
-    width = 0;
-    height = 0;
     quality = 100;
     source_filename = NULL;
     output_filename = NULL;
+    resize = NULL;
     msg_level = Logger::ERROR;
   };
 };  
@@ -42,11 +42,12 @@ static void show_version(Logger& msg)
 static void show_usage(const char* progname, Logger& msg)
 {
   ERR(" Usage: %s [options] <TIFF-file> [write file|--]\n", progname);
-  ERR("   -h           :show this message.\n");
-  ERR("   -v           :verbose outputs.\n");
-  ERR("   -vv          :very verbose outputs.\n");
-  ERR("   -q <quality> :JPEG quality(1-100). (default 100)\n");
-  ERR("   --           :write to stdout.\n");
+  ERR("   -h             :show this message.\n");
+  ERR("   -v             :verbose outputs.\n");
+  ERR("   -vv            :very verbose outputs.\n");
+  ERR("   -q <quality>   :JPEG quality(1-100). (default 100)\n");
+  ERR("   -r <geometory> :resize geometory\n");
+  ERR("   --             :write to stdout.\n");
 }
 
 
@@ -83,6 +84,15 @@ static void parse_args(int argc, const char* argv[], Config& cfg, Logger& msg)
       }
       it++;
     } else
+    if(strcmp(arg, "-r")==0) {
+      if(it+1<argc) {
+        cfg.resize = argv[it+1];
+      } else {
+        ERR("Illegal option for '-r'.\n");
+        throw "-r'";
+      }
+      it++;
+    } else
     if(strcmp(arg, "--") && arg[0]=='-') {
       ERR("Illegal option: %s\n", arg);
       throw "-?";
@@ -102,6 +112,7 @@ int main(int argc, const char*argv[])
   Tiff2bitmap   tiff;
   JpegEncoder   jpegenc;
   Config  cfg;
+  
 
   msg.set_level(Logger::ERROR);
   tiff.set_logger(msg);
@@ -115,7 +126,8 @@ int main(int argc, const char*argv[])
     return -1;
   }
   msg.set_level(cfg.msg_level);
-  DBG("cfg.quality: %d\n", cfg.quality);
+  DBG("cfg.quality: %ld\n", cfg.quality);
+  DBG("cfg.resize: %s\n", cfg.resize);
   DBG("cfg.source_filename: %s\n", cfg.source_filename);
   DBG("cfg.output_filename: %s\n", cfg.output_filename);
   if(cfg.source_filename==NULL) {
@@ -139,20 +151,26 @@ int main(int argc, const char*argv[])
   // Render all images
   try {
     int count = 1;
-    char  filenamebuf[1024];
+    char  strbuf[1024];
     do {
+      INF("Processing %d..\n", count);
       // Read image
       uint32  width = tiff.get_width();
       uint32  height = tiff.get_height();
       uint32* img = tiff.read_RGBA_image();
 
+      // Resize
+      Magick::Image image(width, height, "RGBA", Magick::CharPixel, img);
+      if(cfg.resize) image.resize(cfg.resize);
+
       // Write to file by JPEG.
-      snprintf(filenamebuf, sizeof(filenamebuf), cfg.output_filename, count);
-      jpegenc.open(filenamebuf);
-      jpegenc.set_size(width, height);
-      jpegenc.set_quality(cfg.quality);
-      jpegenc.encode((const unsigned char*)img);
-      jpegenc.close();
+      snprintf(strbuf, sizeof(strbuf), cfg.output_filename, count);
+      image.write(strbuf);
+      //jpegenc.open(strbuf);
+      //jpegenc.set_size(width, height);
+      //jpegenc.set_quality(cfg.quality);
+      //jpegenc.encode((const unsigned char*)img);
+      //jpegenc.close();
 
       tiff.free_image();
       count++;

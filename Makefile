@@ -5,8 +5,8 @@ PREFIX=/usr/local
 #DEBUG_CFLAGS= -g
 #GPROF_FLAG = -pg
 
-CFLAGS= -O2 -Wall -W $(DEBUG_CFLAGS)
-LDFLAGS= -lstdc++ -ljpeg -ltiff
+CFLAGS= -O2 -Wall -W `Magick++-config --cppflags --cxxflags`$(DEBUG_CFLAGS)
+LDFLAGS= `Magick++-config --ldflags --libs` -lstdc++ -ljpeg -ltiff
 
 all:$(EXE)
 
