@@ -11,6 +11,7 @@ Description:
 
 How to build:
   This program is depend on following library and packages:
+  * ImageMagick
   * libtiff-devel
   * libjpeg-devel
 
@@ -30,6 +31,3 @@ How to use:
 
   $ flashtojpeg foo.tiff -q 50 bar-%d.jpg
   => Render "bar-1.jpg", "bar-2.jpg", ... from "foo.tiff", JPEG quality is 50.
-
-  $ flashtojpeg foo.tiff -- | convert - -resize "200x200>" thumb-%d.jpg
-  => Write JPEG stream to stdout, and resize with ImageMagick.
