@@ -106,17 +106,152 @@ static void parse_args(int argc, const char* argv[], Config& cfg, Logger& msg)
 }
 
 
+void  write_to_jpeg_direct(Tiff2bitmap& tiff, int count, Logger& msg, Config& cfg)
+{
+  uint32  width = tiff.get_width();
+  uint32  height = tiff.get_height();
+  uint32* img = tiff.read_RGBA_image();
+  char  strbuf[1024];
+
+  JpegEncoder jpegenc;
+  jpegenc.set_logger(msg);
+
+  DBG("- writing directry.\n");
+  snprintf(strbuf, sizeof(strbuf), cfg.output_filename, count);
+  jpegenc.open(strbuf);
+  jpegenc.set_size(width, height);
+  jpegenc.set_quality(cfg.quality);
+  jpegenc.encode((const unsigned char*)img);
+  jpegenc.close();
+
+  tiff.free_image();
+}
+
+
+void  resize_directry(Tiff2bitmap& tiff, int count, Logger& msg, Config& cfg)
+{
+  uint32  width = tiff.get_width();
+  uint32  height = tiff.get_height();
+  uint32* img = tiff.read_RGBA_image();
+  char  strbuf[1024];
+
+  DBG("- creating Image object.\n");
+  Magick::Image mgk(width, height, "RGBA", Magick::CharPixel, img);
+
+  DBG("- resizing.\n");
+  mgk.resize(cfg.resize);
+
+  DBG("- writing.\n");
+  mgk.quality(cfg.quality);
+  snprintf(strbuf, sizeof(strbuf), cfg.output_filename, count);
+  mgk.write(strbuf);
+
+  tiff.free_image();
+}
+
+ 
+void  resize_tilely(Tiff2bitmap& tiff, int count, Logger& msg, Config& cfg)
+{
+  uint32  width = tiff.get_width();
+  uint32  height = tiff.get_height();
+  uint32  resize_width=0, resize_height=0;
+  char  strbuf[1024], resizeopt[2]="";
+  uint32  off_w=0, off_h=0, w_idx=0, h_idx=0;
+
+  // Calcurate tile division
+  sscanf(cfg.resize, "%dx%d", &resize_width, &resize_height);
+  resizeopt[0] = cfg.resize[strlen(cfg.resize)-1];
+  if(resizeopt[0]!='>' && resizeopt[0]!='<') {
+    resizeopt[0]='\0';
+  }
+  if(resizeopt[0]=='>') {
+    // Don't enlarge
+    if(width>resize_width || height>resize_height) {
+      DBG("resize (%dx%d) to (%dx%d) - do directry.\n", width, height, resize_width, resize_height);
+      resize_directry(tiff, count, msg, cfg);
+      return;
+    }
+  }
+  float rrw = width /resize_width;
+  float rrh = height/resize_height;
+  float resize_rate = (rrw>rrh)? rrw: rrh;
+  DBG("- resize_rate = %f (%fx%f)\n", resize_rate, rrw, rrh);
+
+  // Tileing
+  uint32* img = tiff.read_RGBA_image();
+  uint32  im_width  = (width /1024)+1; // image matrix width
+  uint32  im_height = (height/1024)+1; // image matrix height
+  Magick::Image*  images[im_width][im_height];
+
+  for(h_idx=0; h_idx<im_height; h_idx++) {
+    for(w_idx=0; w_idx<im_width; w_idx++) {
+      off_w = w_idx*1024;
+      off_h = h_idx*1024;
+      uint32  mw = (width -off_w)>1024 ? 1024: width -off_w;
+      uint32  mh = (height-off_h)>1024 ? 1024: height-off_h;
+      DBG("- Tile processing (%d,%d)-[%dx%d]-[%dx%d]\n", w_idx, h_idx, off_w, off_h,mw, mh);
+
+      // Duplicate to tile and create Image object
+      DBG(" - duplicate\n");
+      uint32* tile = new uint32(mw*mh);
+      for(uint32 ih=0; ih<mh; ih++) {
+        memcpy(tile+ih*mw, img+ih*mw, sizeof(uint32)*mw);
+      }
+      DBG(" - create-image\n");
+      Magick::Image* mgk = new Magick::Image(mw, mh, "RGBA", Magick::CharPixel, tile);
+
+      // Resize and store
+      uint32 rw = (uint32)(((float)mw)*resize_rate*1.1);
+      uint32 rh = (uint32)(((float)mh)*resize_rate*1.1);
+      snprintf(strbuf, sizeof(strbuf), "%dx%d%s", rw, rh, resizeopt);
+      DBG(" - resize: %s\n", strbuf);
+      mgk->resize(strbuf);
+      images[w_idx][h_idx] = mgk;
+    }
+  }
+
+  // Concat images
+  Magick::Image mgk;
+  for(h_idx=0, off_h=0; h_idx<im_height; h_idx++) {
+    for(w_idx=0, off_w=0; w_idx<im_width; w_idx++) {
+      DBG("- Montage processing (%d,%d)-[%dx%d]\n", w_idx, h_idx, off_w, off_h);
+      mgk.composite(*images[w_idx][h_idx], off_w, off_h);
+      off_w += images[w_idx][h_idx]->columns();
+    }
+    off_h += images[0][h_idx]->rows();
+  }
+
+  // Destroy tiles
+  for(h_idx=0; h_idx<im_height; h_idx++) {
+    for(w_idx=0; w_idx<im_width; w_idx++) {
+      delete  images[w_idx][h_idx];
+    }
+  }
+
+  // Final resize
+  DBG("- Final resize.\n");
+  mgk.resize(cfg.resize);
+
+  // Write to file
+  DBG("- Write to file.\n");
+  mgk.quality(cfg.quality);
+  snprintf(strbuf, sizeof(strbuf), cfg.output_filename, count);
+  mgk.write(strbuf);
+
+  // Finalize
+  tiff.free_image();
+}
+
+
 int main(int argc, const char*argv[])
 {
   Logger  msg;
   Tiff2bitmap   tiff;
-  JpegEncoder   jpegenc;
   Config  cfg;
   
 
   msg.set_level(Logger::ERROR);
   tiff.set_logger(msg);
-  jpegenc.set_logger(msg);
 
   // Check arguments.
   try {
@@ -151,29 +286,23 @@ int main(int argc, const char*argv[])
   // Render all images
   try {
     int count = 1;
-    char  strbuf[1024];
     do {
       INF("Processing %d..\n", count);
       // Read image
       uint32  width = tiff.get_width();
       uint32  height = tiff.get_height();
-      uint32* img = tiff.read_RGBA_image();
 
-      // Resize
-      Magick::Image image(width, height, "RGBA", Magick::CharPixel, img);
-      if(cfg.resize) image.resize(cfg.resize);
-      image.quality(cfg.quality);
+      if(cfg.resize) {
+        // Resize
+        if(width>2048 || height>2048) {
+          resize_tilely(tiff, count, msg, cfg);
+        } else {
+          resize_directry(tiff, count, msg, cfg);
+        }
+     } else {
+        write_to_jpeg_direct(tiff, count, msg, cfg);
+     }
 
-      // Write to file by JPEG.
-      snprintf(strbuf, sizeof(strbuf), cfg.output_filename, count);
-      image.write(strbuf);
-      //jpegenc.open(strbuf);
-      //jpegenc.set_size(width, height);
-      //jpegenc.set_quality(cfg.quality);
-      //jpegenc.encode((const unsigned char*)img);
-      //jpegenc.close();
-
-      tiff.free_image();
       count++;
     } while(tiff.read_directory()>0);
   }
