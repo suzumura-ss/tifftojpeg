@@ -181,62 +181,62 @@ void  resize_tilely(Tiff2bitmap& tiff, int count, Logger& msg, Config& cfg)
   uint32* img = tiff.read_RGBA_image();
   uint32  im_width  = (width /1024)+1; // image matrix width
   uint32  im_height = (height/1024)+1; // image matrix height
-  Magick::Image*  images[im_width][im_height];
+  Magick::Image rimg;
 
   for(h_idx=0; h_idx<im_height; h_idx++) {
+    uint32  rimg_ofs_h = rimg.rows();
     for(w_idx=0; w_idx<im_width; w_idx++) {
       off_w = w_idx*1024;
       off_h = h_idx*1024;
       uint32  mw = (width -off_w)>1024 ? 1024: width -off_w;
       uint32  mh = (height-off_h)>1024 ? 1024: height-off_h;
-      DBG("- Tile processing (%d,%d)-[%dx%d]-[%dx%d]\n", w_idx, h_idx, off_w, off_h,mw, mh);
+      INF("- Tile processing (%d,%d)-[%dx%d]-[%dx%d]\n", w_idx, h_idx, off_w, off_h, mw, mh);
 
       // Duplicate to tile and create Image object
       DBG(" - duplicate\n");
-      uint32* tile = new uint32(mw*mh);
+      uint32* tile = (uint32*)malloc(mw*mh*sizeof(uint32));
+      uint32* base = img + off_h*width + off_w;
+      // DBG("  %p <= %p, %d\n", tile, base, mw*mh*sizeof(uint32));
       for(uint32 ih=0; ih<mh; ih++) {
-        memcpy(tile+ih*mw, img+ih*mw, sizeof(uint32)*mw);
+        // DBG("  [%4d] %p-%p:%p <= %p:%p\n", ih, tile, tile+mh*mw, tile+ih*mw, base, base+ih*width);
+        memcpy(tile+ih*mw, base+ih*width, sizeof(uint32)*mw);
       }
       DBG(" - create-image\n");
-      Magick::Image* mgk = new Magick::Image(mw, mh, "RGBA", Magick::CharPixel, tile);
+      Magick::Image ti(mw, mh, "RGBA", Magick::CharPixel, tile);
 
       // Resize and store
-      uint32 rw = (uint32)(((float)mw)*resize_rate*1.1);
-      uint32 rh = (uint32)(((float)mh)*resize_rate*1.1);
-      snprintf(strbuf, sizeof(strbuf), "%dx%d%s", rw, rh, resizeopt);
-      DBG(" - resize: %s\n", strbuf);
-      mgk->resize(strbuf);
-      images[w_idx][h_idx] = mgk;
-    }
-  }
+      uint32 rw = (uint32)(((float)mw)*1.1/resize_rate);
+      uint32 rh = (uint32)(((float)mh)*1.1/resize_rate);
+      DBG(" - resize: %dx%d\n", rw, rh);
+      ti.resize(Magick::Geometry(rw, rh, 0, 0));
 
-  // Concat images
-  Magick::Image mgk;
-  for(h_idx=0, off_h=0; h_idx<im_height; h_idx++) {
-    for(w_idx=0, off_w=0; w_idx<im_width; w_idx++) {
-      DBG("- Montage processing (%d,%d)-[%dx%d]\n", w_idx, h_idx, off_w, off_h);
-      mgk.composite(*images[w_idx][h_idx], off_w, off_h);
-      off_w += images[w_idx][h_idx]->columns();
+      // Montagea
+      if(h_idx==0 && w_idx==0) {
+        rimg = ti;
+      } else {
+        uint32  rimg_ofs_w = rimg.columns();
+        INF(" - montage: (%d,%d)\n", rimg_ofs_w, rimg_ofs_h);
+        if(w_idx==0) {
+          rimg.size(Magick::Geometry(rimg.columns()+rw, rimg.rows()+rh, 0, 0));
+        } else {
+          rimg.size(Magick::Geometry(rimg.columns()+rw, rimg.rows(), 0, 0));
+        }
+        rimg.composite(ti, rimg.columns(), rimg_ofs_h);
+      }
+      free(tile);
     }
-    off_h += images[0][h_idx]->rows();
-  }
-
-  // Destroy tiles
-  for(h_idx=0; h_idx<im_height; h_idx++) {
-    for(w_idx=0; w_idx<im_width; w_idx++) {
-      delete  images[w_idx][h_idx];
-    }
+    DBG(" - current result size: %dx%d\n", rimg.columns(), rimg.rows());
   }
 
   // Final resize
   DBG("- Final resize.\n");
-  mgk.resize(cfg.resize);
+  rimg.resize(cfg.resize);
 
   // Write to file
   DBG("- Write to file.\n");
-  mgk.quality(cfg.quality);
+  rimg.quality(cfg.quality);
   snprintf(strbuf, sizeof(strbuf), cfg.output_filename, count);
-  mgk.write(strbuf);
+  rimg.write(strbuf);
 
   // Finalize
   tiff.free_image();
