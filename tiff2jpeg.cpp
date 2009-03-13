@@ -164,14 +164,14 @@ void  resize_tilely(Tiff2bitmap& tiff, int count, Logger& msg, Config& cfg)
   if(resizeopt[0]!='>' && resizeopt[0]!='<') {
     resizeopt[0]='\0';
   }
-  if(resizeopt[0]=='>') {
+
+  if(width<=resize_width || height<=resize_height) {
     // Don't enlarge
-    if(width>resize_width || height>resize_height) {
-      DBG("resize (%dx%d) to (%dx%d) - do directry.\n", width, height, resize_width, resize_height);
-      resize_directry(tiff, count, msg, cfg);
-      return;
-    }
+    DBG("resize (%dx%d) to (%dx%d) - do directry.\n", width, height, resize_width, resize_height);
+    resize_directry(tiff, count, msg, cfg);
+    return;
   }
+
   float rrw = width /resize_width;
   float rrh = height/resize_height;
   float resize_rate = (rrw>rrh)? rrw: rrh;
@@ -181,16 +181,21 @@ void  resize_tilely(Tiff2bitmap& tiff, int count, Logger& msg, Config& cfg)
   uint32* img = tiff.read_RGBA_image();
   uint32  im_width  = (width /1024)+1; // image matrix width
   uint32  im_height = (height/1024)+1; // image matrix height
-  Magick::Image rimg;
+  Magick::Image rimg(
+              Magick::Geometry((uint32)(width*1.1/resize_rate), (uint32)(height*1.1/resize_rate), 0, 0),
+              Magick::Color(0, 0, 0, 0));
 
+  uint32  rimg_ofs_h = 0;
   for(h_idx=0; h_idx<im_height; h_idx++) {
-    uint32  rimg_ofs_h = rimg.rows();
+    uint32  rimg_ofs_w = 0;
     for(w_idx=0; w_idx<im_width; w_idx++) {
       off_w = w_idx*1024;
       off_h = h_idx*1024;
       uint32  mw = (width -off_w)>1024 ? 1024: width -off_w;
       uint32  mh = (height-off_h)>1024 ? 1024: height-off_h;
-      INF("- Tile processing (%d,%d)-[%dx%d]-[%dx%d]\n", w_idx, h_idx, off_w, off_h, mw, mh);
+      INF("- Tile processing (%d,%d)(%d, %d)-[%dx%d]-[%dx%d]\n",
+            w_idx, h_idx, rimg_ofs_w, rimg_ofs_h,
+            off_w, off_h, mw, mh);
 
       // Duplicate to tile and create Image object
       DBG(" - duplicate\n");
@@ -211,25 +216,17 @@ void  resize_tilely(Tiff2bitmap& tiff, int count, Logger& msg, Config& cfg)
       ti.resize(Magick::Geometry(rw, rh, 0, 0));
 
       // Montagea
-      if(h_idx==0 && w_idx==0) {
-        rimg = ti;
-      } else {
-        uint32  rimg_ofs_w = rimg.columns();
-        INF(" - montage: (%d,%d)\n", rimg_ofs_w, rimg_ofs_h);
-        if(w_idx==0) {
-          rimg.size(Magick::Geometry(rimg.columns()+rw, rimg.rows()+rh, 0, 0));
-        } else {
-          rimg.size(Magick::Geometry(rimg.columns()+rw, rimg.rows(), 0, 0));
-        }
-        rimg.composite(ti, rimg.columns(), rimg_ofs_h);
-      }
+      DBG(" - montage: (%d,%d)\n", rimg_ofs_w, rimg_ofs_h);
+      rimg.composite(ti, rimg_ofs_w, rimg_ofs_h);
+      rimg_ofs_w += ti.columns();
+      if(w_idx+1==im_width) rimg_ofs_h += ti.rows();
       free(tile);
     }
-    DBG(" - current result size: %dx%d\n", rimg.columns(), rimg.rows());
   }
 
   // Final resize
   DBG("- Final resize.\n");
+  rimg.trim();
   rimg.resize(cfg.resize);
 
   // Write to file
