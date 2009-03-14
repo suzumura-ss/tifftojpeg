@@ -47,7 +47,6 @@ static void show_usage(const char* progname, Logger& msg)
   ERR("   -vv            :very verbose outputs.\n");
   ERR("   -q <quality>   :JPEG quality(1-100). (default 100)\n");
   ERR("   -r <geometory> :resize geometory\n");
-  ERR("   --             :write to stdout.\n");
 }
 
 
